@@ -1,0 +1,34 @@
+/* 1번 문제 */
+sudo apt-get install openssh-server // 서버에서 openssh-server를 가져와 설치함
+sudo apt-get install vim
+sudo vi /etc/ssh/sshd_config
+sudo service ssh start 
+
+/*2번 문제*/
+sudo vi /etc/apt/sources.list
+
+/*3번 문제*/
+/*create user*/
+sudo useradd ejlee
+sudo passwd ejlee // password = embedded
+sudo passwd ejlee // apssword = 12345
+
+/*view user list
+etc 폴더 아래 passwd 의 내용을 ':' 을 기준으로 자른 후 1번 토큰을 프린트함*/
+cat /etc/passwd
+cat /etc/passwd | awk -F ':' '{print $1}'
+cat /etc/passwd | awk -F ':' '{print $1}' | sort
+
+/*4번 문제*/
+/* proc 폴더 아래 cpuinfo의 내용 중 cpu 가 들어간 내용을 프린트함*/
+cat /proc/cpuinfo | grep cpu
+
+/* 리눅스 시스템 정보를 모두 출력함*/
+uname -ra
+
+/*5 번문제 */
+/*1. etc 폴더 아래 passwd 의 내용을 ':' 을 기준으로 자른 후 1번 토큰을 system_info에 저장함
+2. proc 폴더 아래 cpuinfo 의 내용을 systemp_info에 덧붙임*/
+cat /etc/passwd | awk -F ':' '{print $1} ' > system_info.txt
+cat /proc/cpuinfo >> systemp_info.txt 
+
