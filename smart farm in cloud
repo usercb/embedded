@@ -59,6 +59,7 @@ pthread_cond_t empty, fan, fill, led;
 char query[1024];
 int _queue[LOOPS];
 int front, rear;
+int mon;
 
 void init_queue(void){
     front = rear = 0;
