@@ -372,5 +372,6 @@ void sig_handler(int signo)
 	digitalWrite(RED, 0);
 	digitalWrite(GREEN, 0);
 	digitalWrite(BLUE, 0);
+	digitalWrite(RGBLEDPOWER,0);
 	exit(0);
 }
