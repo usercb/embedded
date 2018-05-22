@@ -73,14 +73,16 @@ void clear_queue(void){
 
 int put(int k){
     _queue[rear] = k;
-    rear = ++rear % MAX;
+    rear = ++rear % LOOPS;
+    count++;
     return k;
 }
 
 int get(void){
     int i;
     i = _queue[front];
-    front = ++front % MAX;
+    front = ++front % LOOPS;
+    count--;
     return i;
 }
 
