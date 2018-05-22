@@ -60,9 +60,6 @@ char query[1024];
 int _queue[LOOPS];
 int front, rear;
 
-int count = 0;
-int mon;
-
 void init_queue(void){
     front = rear = 0;
 }
@@ -74,7 +71,6 @@ void clear_queue(void){
 int put(int k){
     _queue[rear] = k;
     rear = ++rear % LOOPS;
-    count++;
     return k;
 }
 
@@ -82,7 +78,6 @@ int get(void){
     int i;
     i = _queue[front];
     front = ++front % LOOPS;
-    count--;
     return i;
 }
 
@@ -232,7 +227,7 @@ void *producer(void *arg) {
 	int temp, light;
 	for(i=0;i<LOOPS;i++) {
 		pthread_mutex_lock(&mutex); //큐를 custumer와 공용으로 사용하기 때문에 락을 건다.
-		while(count == LOOPS) //버퍼가 가득 찼으면
+		while((rear + 1) % MAX == front) //버퍼가 가득 찼으면
 			pthread_cond_wait(&empty, &mutex); //empty 신호를 기다리고 mutex를 푼다. 
 		
 		temp = read_dht22_dat();
@@ -264,7 +259,7 @@ void *customer(void *arg) {
 	int i;
 	for(i=0;i<LOOPS;i++) {
 		pthread_mutex_lock(&mutex); //큐를 producer와 공용으로 사용하기 때문에 락을 건다.
-		while(count == 0) //버퍼에 데이터가 없으면
+		while(front == rear) //버퍼에 데이터가 없으면
 			pthread_cond_wait(&fill, &mutex); //fill 신호를 기다리고 mutex를 푼다 
 
 		int temp = get();
