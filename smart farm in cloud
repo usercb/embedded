@@ -5,11 +5,11 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <unistd.h>
-
+#include <string.h>
 #include <errno.h>
 #include <softPwm.h>
 #include <signal.h>
-//#include "locking.h"
+
 #include <time.h>
 #include <math.h>
 #include <pthread.h>
@@ -17,14 +17,11 @@
 #include <mysql/mysql.h>
 
 
-#define RED	7//27
-#define GREEN	9//28
-#define BLUE	8//29
-#define FAN 22
-#define PUMP 21
+#define RED 4//29
+#define FAN 6
 #define LOOPSTIMINGS 85
 #define MOTORCONTROL 23
-#define RGBLEDPOWER  24 //BCM_GPIO 19
+#define RGBLEDPOWER  19 //BCM_GPIO 19
 
 #define CS_MCP3208 8
 #define SPI_CHANNEL 0
@@ -37,11 +34,9 @@
 
 void sig_handler(int signo); // SIGINT 사용 마지막 종료 함수
 int ret_humid, ret_temp;
-//static int DHTPIN = 7;
-static int DHTPIN = 11;
+
+static int DHTPIN = 7;
 static int dht22_dat[5] = {0,0,0,0,0};
-
-
 
 #define DBHOST "localhost"
 #define DBUSER "root"
@@ -61,114 +56,89 @@ int _queue[LOOPS];
 int front, rear;
 int mon;
 
+
 void init_queue(void){
-    front = rear = 0;
+	    front = rear = 0;
 }
 
 void clear_queue(void){
-    front = rear;
+	    front = rear;
 }
 
 int put(int k){
-    _queue[rear] = k;
-    rear = ++rear % LOOPS;
-    return k;
+	    _queue[rear] = k;
+	        rear = ++rear % LOOPS;
+		    return k;
 }
 
 int get(void){
-    int i;
-    i = _queue[front];
-    front = ++front % LOOPS;
-    return i;
+	    int i;
+	        i = _queue[front];
+		    front = ++front % LOOPS;
+		        return i;
 }
-
-
-
 
 static uint8_t sizecvt(const int read)
 {
-  /* digitalRead() and friends from wiringpi are defined as returning a value
-  < 256. However, they are returned as int() types. This is a safety function */
-
   if (read > 255 || read < 0)
-  {
-    printf("Invalid data from wiringPi library\n");
-    exit(EXIT_FAILURE);
-  }
+    {
+        printf("Invalid data from wiringPi library\n");
+        exit(EXIT_FAILURE);
+     }
   return (uint8_t)read;
 }
-
-
 int read_dht22_dat()
 {
-  uint8_t laststate = HIGH;
-  uint8_t counter = 0;
-  uint8_t j = 0, i;
+	uint8_t laststate = HIGH;
+	uint8_t counter = 0;
+	uint8_t j = 0, i;
+	dht22_dat[0] = dht22_dat[1] = dht22_dat[2] = dht22_dat[3] = dht22_dat[4] = 0;
+	pinMode(DHTPIN, OUTPUT);
+	digitalWrite(DHTPIN, HIGH);
+	delay(10);
+	digitalWrite(DHTPIN, LOW);
+	delay(18);
+	digitalWrite(DHTPIN, HIGH);
+	delayMicroseconds(40); 
+	pinMode(DHTPIN, INPUT);
+	 for( i=0; i< LOOPSTIMINGS; i++) {
+	    counter = 0;
+	    while (sizecvt(digitalRead(DHTPIN)) == laststate) {
+	      counter++;
+	      delayMicroseconds(1);
+	      if (counter == 255) {
+		  break;
+	       }
+	     }
+	    laststate = sizecvt(digitalRead(DHTPIN));
+	    if (counter == 255) break;
 
-  dht22_dat[0] = dht22_dat[1] = dht22_dat[2] = dht22_dat[3] = dht22_dat[4] = 0;
+	    if((i>=4)&&(i%2 ==0)){
+		    dht22_dat[j/8] <<=1;
+		    if(counter > 50)
+	 		   dht22_dat[j/8] |=1;
+		    j++;
+	   		 }
+	   }
 
-  // pull pin down for 18 milliseconds
-  pinMode(DHTPIN, OUTPUT);
-  digitalWrite(DHTPIN, HIGH);
-  delay(10);
-  digitalWrite(DHTPIN, LOW);
-  delay(18);
-  // then pull it up for 40 microseconds
-  digitalWrite(DHTPIN, HIGH);
-  delayMicroseconds(40); 
-  // prepare to read the pin
-  pinMode(DHTPIN, INPUT);
+	 if ((j>=40)&&(dht22_dat[4] == ((dht22_dat[0]  + dht22_dat[1] + dht22_dat[2] + dht22_dat[3]) & 0xFF)) ) {
+	        float t, h;
+	        h = (float)dht22_dat[0] * 256 + (float)dht22_dat[1];
+		h /=10;
+		t = (float)(dht22_dat[2] & 0x7F)* 256 + (float)dht22_dat[3];
+		t /= 10.0;
+		if ((dht22_dat[2] & 0x80) != 0)  t *= -1;
+			ret_humid = (int)h;
+			ret_temp = (int)t;
 
-  // detect change and read data
-  for ( i=0; i< LOOPSTIMINGS; i++) {
-    counter = 0;
-    while (sizecvt(digitalRead(DHTPIN)) == laststate) {
-      counter++;
-      delayMicroseconds(1);
-      if (counter == 255) {
-        break;
-      }
-    }
-    laststate = sizecvt(digitalRead(DHTPIN));
-
-    if (counter == 255) break;
-
-    // ignore first 3 transitions
-    if ((i >= 4) && (i%2 == 0)) {
-      // shove each bit into the storage bytes
-      dht22_dat[j/8] <<= 1;
-      if (counter > 50)
-        dht22_dat[j/8] |= 1;
-      j++;
-    }
-  }
-
-  // check we read 40 bits (8bit x 5 ) + verify checksum in the last byte
-  // print it out if data is good
-  if ((j >= 40) && 
-      (dht22_dat[4] == ((dht22_dat[0] + dht22_dat[1] + dht22_dat[2] + dht22_dat[3]) & 0xFF)) ) {
-        float t, h;
-		
-        h = (float)dht22_dat[0] * 256 + (float)dht22_dat[1];
-        h /= 10;
-        t = (float)(dht22_dat[2] & 0x7F)* 256 + (float)dht22_dat[3];
-        t /= 10.0;
-        if ((dht22_dat[2] & 0x80) != 0)  t *= -1;
-		
-		ret_humid = (int)h;
-		ret_temp = (int)t;
-		//printf("Humidity = %.2f %% Temperature = %.2f *C \n", h, t );
-		//printf("Humidity = %d Temperature = %d\n", ret_humid, ret_temp);
-		
-    return ret_temp;
-  }
-  else
-  {
-    printf("Data not good, skip\n");
-    return 0;
-  }
+		return ret_temp;
+	 }
+	 else
+	 {
+		 printf ("data not good, skip\n");
+		 return 0;
+	 }
 }
-
 
 /*
  MCP3208로 부터 SPI통신을 통해 조도센서의 값을 받아오는 함수
@@ -209,8 +179,6 @@ int read_mcp3208_adc(unsigned char adcChannel)
 int get_light_sensor() {
 	unsigned char adcChannel_light = 0;
 	int adcValue_light = 0;
-
-	pinMode(CS_MCP3208, OUTPUT);
 	adcValue_light = read_mcp3208_adc(adcChannel_light);
 	return adcValue_light;
 }
@@ -218,23 +186,26 @@ int get_light_sensor() {
 
 
 void *th_fan(void *arg) {
-		pthread_mutex_lock(&f_mutex);
-		pthread_cond_wait(&fan, &f_mutex);
-		printf("FAN ON\n");
-		digitalWrite(FAN, 1);
-		delay(5000);
-		digitalWrite(FAN, 0);
-		pthread_mutex_unlock(&f_mutex);
+	
+	while(1){
+	printf("in fan thread\n");
+	pthread_mutex_lock(&f_mutex);
+	pthread_cond_wait(&fan, &f_mutex);
+	digitalWrite(FAN, 1);
+	delay(5000);
+	digitalWrite(FAN, 0);
+	pthread_mutex_unlock(&f_mutex);
+	}
 }
 
 void *th_led(void *arg) {
-		pthread_mutex_lock(&l_mutex);
-		pthread_cond_wait(&led, &l_mutex);
-		printf("LED ON\n");
-		digitalWrite(RED,1);
-		digitalWrite(GREEN,1);
-		digitalWrite(BLUE,1);
-		pthread_mutex_unlock(&l_mutex);
+	
+	while(1){
+	printf("in led thread\n");	
+	pthread_mutex_lock(&l_mutex);
+	pthread_cond_wait(&led, &l_mutex);
+	digitalWrite(RED,1);
+	pthread_mutex_unlock(&l_mutex);
 	}
 }
 
@@ -242,81 +213,62 @@ void *producer(void *arg) {
 	int i;
 	int temp, light;
 	for(i=0;i<LOOPS;i++) {
-		pthread_mutex_lock(&mutex); //큐를 custumer와 공용으로 사용하기 때문에 락을 건다.
-		while((rear + 1) % MAX == front) //버퍼가 가득 찼으면
-			pthread_cond_wait(&empty, &mutex); //empty 신호를 기다리고 mutex를 푼다. 
-		
-		temp = read_dht22_dat();
-		light = get_light_sensor();
-		put(temp);
-		put(light);	
-		printf(" temperter is %d \n",temp);
-		printf(" lightness is %d \n",light);
-		if (temp >= 20) {
-			pthread_cond_signal(&fan);
-		}
-
-		if (light <= 100) {
-			pthread_cond_signal(&led);
-		}
-		else {
-			digitalWrite(RED, 0);
-			digitalWrite(GREEN, 0);
-			digitalWrite(BLUE, 0);
-		}
-
-		pthread_cond_signal(&fill);
-		pthread_mutex_unlock(&mutex);
-		delay(1000); // 요구사항이 1ms 
+	pthread_mutex_lock(&mutex); 
+	while((rear + 1) % LOOPS == front) 
+	pthread_cond_wait(&empty, &mutex);  
+	temp = read_dht22_dat();
+	light = get_light_sensor();
+	
+	put(temp);
+	put(light);	
+	printf(" temperter is %d \n",temp);
+	printf(" lightness is %d \n",light);
+	if (temp >= 20) {
+		pthread_cond_signal(&fan);
+	}
+	if (light<= 3000) {
+		pthread_cond_signal(&led);
+	}
+	else {	
+		digitalWrite(RED, 0);
+	}	
+	pthread_cond_signal(&fill);
+	pthread_mutex_unlock(&mutex);
+	delay(1000); 
 	}
 }
-
 void *customer(void *arg) {
 	int i;
 	for(i=0;i<LOOPS;i++) {
-		pthread_mutex_lock(&mutex); //큐를 producer와 공용으로 사용하기 때문에 락을 건다.
-		while(front == rear) //버퍼에 데이터가 없으면
-			pthread_cond_wait(&fill, &mutex); //fill 신호를 기다리고 mutex를 푼다 
-
-		int temp = get();
-		int light = get();
-				
-		if(mon % 20 == 0 || mon % 20 == 1) {
-			connector = mysql_init(NULL);
-			if(!mysql_real_connect(connector, DBHOST, DBUSER, DBPASS, DBNAME, 3306, NULL, 0))
-			{
-				fprintf(stderr, "%s\n", mysql_error(connector));
-				return 0;
-			}
-
-			 printf("MySQL(rpidb) opened.\n");
-			
-		
-			sprintf(query, "insert into Data values ( now(), %d, %d)", temp, light);
-			if(mysql_query(connector, query))
-			{
-				fprintf(stderr, "%s\n", mysql_error(connector));
-				printf("Write DB error\n");
-			}
+	pthread_mutex_lock(&mutex); 
+	while(front == rear) //버퍼에 데이터가 없으면
+	pthread_cond_wait(&fill, &mutex); //fill 신호를 기다리고 mutex를 푼다 
+	int temp = get();
+	int light = get();
+	if(mon % 20 == 0 || mon % 20 == 1) {
+		connector = mysql_init(NULL);
+		if(!mysql_real_connect(connector, DBHOST, DBUSER, DBPASS, DBNAME, 3306, NULL, 0)){
+			fprintf(stderr, "%s\n", mysql_error(connector));
+			return 0;
 		}
+
+		printf("MySQL(rpidb) opened.\n");
+	  	sprintf(query, "insert into thl  values ( now(),%d, %d, %d)", temp,0 ,light);
+		if(mysql_query(connector, query)){
+			fprintf(stderr, "%s\n", mysql_error(connector));
+			printf("Write DB error\n");
+		}
+	}
 		pthread_cond_signal(&empty);
 		pthread_mutex_unlock(&mutex);
-	
 	}
-	
 }
-
-
 int main (void)
 {
 	signal(SIGINT, (void *)sig_handler);
 	int adcChannel = 0;
 	int adcValue[8] = {0};
 	init_queue();
-	
-	if(wiringPiSetup() == -1)
-		exit(EXIT_FAILURE);
-
 	if(setuid(getuid()) < 0) {
 		perror("Dropping Failed\n");
 		exit(EXIT_FAILURE);
@@ -326,22 +278,16 @@ int main (void)
 		fprintf(stdout, "Unable to start wiringPi: %s\n", strerror(errno));
 		return 1;
 	}
-
 	if (wiringPiSPISetup(SPI_CHANNEL, SPI_SPEED) == -1)
 	{
 		fprintf(stdout, "wiringPiSPISetup Failed: %s\n", strerror(errno));
 		return 1;
 	}
-
-
 	pinMode(CS_MCP3208, OUTPUT);
 	pinMode(FAN, OUTPUT);
 	pinMode(RGBLEDPOWER, OUTPUT);
-	pinMode(RED, OUTPUT);
-	pinMode(GREEN, OUTPUT);
-	pinMode(BLUE, OUTPUT);	
+	pinMode(RED, OUTPUT);	
 	digitalWrite(RGBLEDPOWER,1);
-
 	connector = mysql_init(NULL);
 	if (!mysql_real_connect(connector, DBHOST, DBUSER, DBPASS, DBNAME, 3306, NULL, 0))
 	{
@@ -372,7 +318,6 @@ int main (void)
 	pthread_cond_destroy(&empty);
 	pthread_cond_destroy(&fan);
 	pthread_cond_destroy(&led);
-	
 	return 0;
 }
 
@@ -381,8 +326,6 @@ void sig_handler(int signo)
 	printf("process stop\n");
 	digitalWrite(FAN, 0);
 	digitalWrite(RED, 0);
-	digitalWrite(GREEN, 0);
-	digitalWrite(BLUE, 0);
 	digitalWrite(RGBLEDPOWER,0);
 	exit(0);
 }
