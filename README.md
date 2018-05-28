@@ -20,4 +20,4 @@ Collect data for more than 1 minute.
 Capture the screen showing data statistics on the web server. 
 (This screen shot should be included in a git repository and a final report). 
 
-Video link : https://www.youtube.com/channel/UCCGf4e2SnVvfKCqmWgavnLA
+Video link : https://www.youtube.com/watch?v=Cd4rcNvwIRA
