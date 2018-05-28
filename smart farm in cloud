@@ -170,22 +170,37 @@ int read_dht22_dat()
 }
 
 
-int read_mcp3208_adc(unsigned char adcChannel)
+/*
+ MCP3208로 부터 SPI통신을 통해 조도센서의 값을 받아오는 함수
+*/
+int read_mcp3208_adc(unsigned char adcChannel)  
 {
-	unsigned char buff[3];
-	int adcValue = 0;
-	
+	unsigned char buff[3]; // 데이타 버퍼 
+	int adcValue = 0; //MCP3208로부터 받아온 디지털 값 
+	/*
+		라즈베리 파이가 MCP3208로 보내는 값 
+		ADC채널 값은 D2 D1 D0로 0~7의 값을 가진다. 
+		buff[0] = 0 0 0 0 0 Start SGL D2
+		0x06 = 0000_0110 : Start 와 SGL 신호의 값을 1로 셋팅 
+		adcChannel & 0x07 >> 2 : ADC 채널 값을 마스킹하고 첫번째 비트의 값을 D2에 셋팅
+		buff[1] = D1 D2 x x x x x x 
+		adcChannel & 0x07 << 6 ADC채널의 1번째 0번째 값을 D1 D0에 셋팅
+		buff[2] = x x x x x x x x 
+		불필요한 값 
+	*/
 	buff[0] = 0x06 | ((adcChannel & 0x07) >> 2);
 	buff[1] = ((adcChannel & 0x07) << 6);
 	buff[2] = 0x00;
-
 	digitalWrite(CS_MCP3208, 0);
-	
+	/*
+		SPI 통신을 통해 MCP3208에 명령 전달 
+	*/
 	wiringPiSPIDataRW(SPI_CHANNEL, buff, 3);
-	
+	/*
+		MCP3208이 보낸 값을 가공 
+	*/
 	buff[1] = 0x0f & buff[1];
 	adcValue = (buff[1] << 8) | buff[2];
-
 	digitalWrite(CS_MCP3208, 1);
 	
 	return adcValue;
